@@ -62,3 +62,6 @@ outputs/reports/
 # Logs
 # -------------------------------
 *.log
+
+datasets/
+data/
