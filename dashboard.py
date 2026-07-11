@@ -3,6 +3,7 @@ import os
 import shutil
 import pandas as pd
 import plotly.express as px
+import plotly.graph_objects as go
 
 from orchestrator import Orchestrator
 from agents.chat_agent import ChatAgent
@@ -33,7 +34,8 @@ This AI Data Analyst automatically performs:
 • Recommendation generation  
 • AI-powered explanation  
 • Conversational dataset analysis  
-• Automated analysis report
+• Automated analysis report  
+• Data Quality Score & Report
 """
 )
 
@@ -84,6 +86,172 @@ if df_preview is not None:
     c2.metric("Columns", cols)
     c3.metric("Missing Values", missing)
     c4.metric("Duplicate Rows", duplicates)
+
+# ------------------------------------------------
+# Quality Report helpers
+# ------------------------------------------------
+
+_GRADE_COLOUR = {
+    "Excellent": "🟢",
+    "Good":      "🔵",
+    "Fair":      "🟡",
+    "Poor":      "🔴",
+}
+
+_METRIC_LABELS = {
+    "missing_values":       "Missing Values",
+    "duplicates":           "Duplicates",
+    "constant_columns":     "Constant Columns",
+    "high_cardinality":     "High Cardinality",
+    "outliers":             "Outliers",
+    "datatype_consistency": "Datatype Consistency",
+    "empty_columns":        "Empty Columns",
+}
+
+
+def _score_colour(score: int) -> str:
+    """Return a CSS colour string based on the score band."""
+    if score >= 90:
+        return "green"
+    if score >= 75:
+        return "orange"
+    if score >= 60:
+        return "goldenrod"
+    return "red"
+
+
+def _build_radar_chart(metrics: dict) -> go.Figure:
+    """Return a Plotly radar / spider chart for the metric scores."""
+    labels = [_METRIC_LABELS.get(k, k) for k in metrics]
+    values = list(metrics.values())
+
+    # Close the polygon
+    labels_closed = labels + [labels[0]]
+    values_closed = values + [values[0]]
+
+    fig = go.Figure(
+        go.Scatterpolar(
+            r=values_closed,
+            theta=labels_closed,
+            fill="toself",
+            line=dict(color="#4C78A8", width=2),
+            fillcolor="rgba(76, 120, 168, 0.25)",
+            name="Quality Score",
+        )
+    )
+    fig.update_layout(
+        polar=dict(
+            radialaxis=dict(visible=True, range=[0, 100]),
+        ),
+        showlegend=False,
+        margin=dict(l=40, r=40, t=40, b=40),
+        height=420,
+    )
+    return fig
+
+
+def _build_bar_chart(metrics: dict) -> go.Figure:
+    """Return a Plotly horizontal bar chart for the metric scores."""
+    labels = [_METRIC_LABELS.get(k, k) for k in metrics]
+    values = list(metrics.values())
+    colours = [_score_colour(v) for v in values]
+
+    fig = go.Figure(
+        go.Bar(
+            x=values,
+            y=labels,
+            orientation="h",
+            marker=dict(color=colours),
+            text=[f"{v}" for v in values],
+            textposition="outside",
+        )
+    )
+    fig.update_layout(
+        xaxis=dict(range=[0, 110], title="Score (0–100)"),
+        yaxis=dict(autorange="reversed"),
+        margin=dict(l=10, r=30, t=10, b=30),
+        height=340,
+    )
+    return fig
+
+
+def _render_quality_report(report: dict) -> None:
+    """Render the full Data Quality Report inside the Streamlit dashboard."""
+
+    if not report:
+        st.warning("Quality report is not available.")
+        return
+
+    overall   = report.get("overall_score", 0)
+    grade     = report.get("grade", "Poor")
+    metrics   = report.get("metrics", {})
+    warnings  = report.get("warnings", [])
+    recs      = report.get("recommendations", [])
+
+    icon = _GRADE_COLOUR.get(grade, "⚪")
+
+    # -- Overall score row --
+    col_score, col_grade, col_bar = st.columns([1, 1, 4])
+
+    with col_score:
+        st.metric("Overall Quality Score", f"{overall} / 100")
+
+    with col_grade:
+        st.metric("Grade", f"{icon} {grade}")
+
+    with col_bar:
+        st.progress(overall / 100)
+
+    st.divider()
+
+    # -- Per-metric cards --
+    st.markdown("**Metric Breakdown**")
+
+    card_cols = st.columns(len(metrics)) if metrics else []
+
+    for idx, (key, score) in enumerate(metrics.items()):
+        label = _METRIC_LABELS.get(key, key)
+        colour = _score_colour(score)
+        with card_cols[idx]:
+            st.markdown(
+                f"<div style='text-align:center;'>"
+                f"<span style='font-size:1.6rem;font-weight:700;color:{colour};'>{score}</span>"
+                f"<br><span style='font-size:0.78rem;color:#666;'>{label}</span>"
+                f"</div>",
+                unsafe_allow_html=True,
+            )
+
+    st.divider()
+
+    # -- Charts side by side --
+    st.markdown("**Quality Visualisation**")
+
+    chart_left, chart_right = st.columns(2)
+
+    with chart_left:
+        st.markdown("Radar Chart")
+        if metrics:
+            st.plotly_chart(_build_radar_chart(metrics), use_container_width=True)
+
+    with chart_right:
+        st.markdown("Score per Metric")
+        if metrics:
+            st.plotly_chart(_build_bar_chart(metrics), use_container_width=True)
+
+    st.divider()
+
+    # -- Warnings --
+    if warnings:
+        st.markdown("**Warnings**")
+        for w in warnings:
+            st.warning(w)
+
+    # -- Recommendations --
+    if recs:
+        st.markdown("**Recommendations**")
+        for r in recs:
+            st.info(r)
+
 
 # ------------------------------------------------
 # Dataset Summary (for chat)
@@ -145,7 +313,14 @@ if run_analysis:
 # ------------------------------------------------
 if "analysis_result" in st.session_state:
 
-    df, profile, insights, recommendations, ai_explanation, missing_summary = st.session_state["analysis_result"]
+    df, profile, insights, recommendations, ai_explanation, missing_summary, quality_report = st.session_state["analysis_result"]
+
+    # ------------------------------------------------
+    # Data Quality Report
+    # ------------------------------------------------
+    st.subheader("Data Quality Report")
+
+    _render_quality_report(quality_report)
 
     # ------------------------------------------------
     # AI Explanation

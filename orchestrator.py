@@ -8,6 +8,7 @@ from agents.insight_agent import InsightAgent
 from agents.recommendation_agent import RecommendationAgent
 from agents.report_agent import ReportAgent
 from agents.llm_explainer_agent import LLMExplainerAgent
+from agents.quality_agent import QualityAgent
 
 
 class Orchestrator:
@@ -24,6 +25,7 @@ class Orchestrator:
         self.recommender = RecommendationAgent()
         self.reporter = ReportAgent()
         self.llm_explainer = LLMExplainerAgent()
+        self.quality_agent = QualityAgent()
 
     def run(self, dataset_source):
 
@@ -93,6 +95,11 @@ class Orchestrator:
             recommendations
         )
 
+        # -------------------------------
+        # Step 11 — Data Quality Score
+        # -------------------------------
+        quality_report = self.quality_agent.analyze(df)
+
         print("\nAnalysis Complete.")
 
-        return df, profile, insights, recommendations, ai_explanation, missing_summary
+        return df, profile, insights, recommendations, ai_explanation, missing_summary, quality_report
